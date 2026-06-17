@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EMF Dashboard</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar" aria-label="Dashboard header">
+      <div class="identity">
+        <div class="kicker">EMF 2026 // personal mission control</div>
+        <h1>Orbit Desk</h1>
+        <p class="subtle">Field-ready dashboard for favourite talks, reminders, camp logistics, signal checks, and power levels.</p>
+      </div>
+      <section class="top-status" aria-label="Current status">
+        <div class="status-pill">
+          <span class="label">Owner</span>
+          <strong>{{.OwnerName}}</strong>
+        </div>
+        <div class="status-pill">
+          <span class="label">Local Time</span>
+          <strong>{{.NowLabel}}</strong>
+        </div>
+        <div class="status-pill">
+          <span class="label">Mode</span>
+          <strong>{{.Mode}}</strong>
+        </div>
+        <div class="status-pill">
+          <span class="label">Signal</span>
+          <strong>{{.Signal}}</strong>
+        </div>
+      </section>
+    </header>
+
+    {{range .Warnings}}
+      <aside class="notice" role="status">{{.}}</aside>
+    {{end}}
+
+    <section class="dashboard" aria-label="Dashboard widgets">
+      <article class="panel mission span-6 lg-7">
+        <div class="panel-header">
+          <h2 class="panel-title">Next Critical Thing</h2>
+          {{if .HasNext}}<span class="tag">{{.Next.Countdown}}</span>{{else}}<span class="tag">No schedule</span>{{end}}
+        </div>
+        <div class="panel-body">
+          {{if .HasNext}}
+            <p class="big-number">{{.Next.StartLabel}}</p>
+            <h2>{{.Next.Title}}</h2>
+            <p class="subtle">{{.Next.Venue}} // {{.Next.Names}}</p>
+            <p class="subtle">{{.Next.Description}}</p>
+            <div class="mission-grid">
+              <div class="stat">
+                <span class="label">Type</span>
+                <strong>{{.Next.Type}}</strong>
+              </div>
+              <div class="stat">
+                <span class="label">Venue</span>
+                <strong>{{.Next.Venue}}</strong>
+              </div>
+              <div class="stat">
+                <span class="label">Ends</span>
+                <strong>{{.Next.EndLabel}}</strong>
+              </div>
+              <div class="stat">
+                <span class="label">Source</span>
+                <strong>{{.SourceLabel}}</strong>
+              </div>
+            </div>
+          {{else}}
+            <p class="big-number">--:--</p>
+            <h2>No scheduled favourites found</h2>
+            <p class="subtle">The dashboard is alive, but there is nothing with a parseable occurrence yet.</p>
+          {{end}}
+        </div>
+      </article>
+
+      <article class="panel span-6 lg-5">
+        <div class="panel-header">
+          <h2 class="panel-title">Schedule Radar</h2>
+          <span class="tag">{{.LastUpdatedLabel}}</span>
+        </div>
+        <div class="panel-body schedule">
+          {{range .Schedule}}
+            <a class="talk {{if .IsNext}}next{{end}}" href="{{.Link}}">
+              <div class="timecode">{{.StartLabel}}</div>
+              <div>
+                <h3>{{.Title}}</h3>
+                <div class="meta">{{.DayLabel}} // {{.Venue}} // {{.Names}}</div>
+              </div>
+            </a>
+          {{else}}
+            <p class="subtle">No upcoming scheduled favourites available.</p>
+          {{end}}
+        </div>
+      </article>
+
+      <article class="panel span-3 lg-3">
+        <div class="panel-header">
+          <h2 class="panel-title">Vitals</h2>
+        </div>
+        <div class="panel-body signal">
+          <div>
+            <div class="label">Favourite Count</div>
+            <div class="bar count"></div>
+          </div>
+          <div>
+            <div class="label">Power Bank</div>
+            <div class="bar warn"></div>
+          </div>
+          <div>
+            <div class="label">Social Battery</div>
+            <div class="bar hot"></div>
+          </div>
+          <p class="subtle">{{.FavouriteCount}} favourites loaded. Suggested action: water, charge, then go outside.</p>
+        </div>
+      </article>
+
+      <article class="panel span-3 lg-4">
+        <div class="panel-header">
+          <h2 class="panel-title">Camp Ops</h2>
+          <span class="tag">Checklist</span>
+        </div>
+        <div class="panel-body todo-list">
+          <div class="todo">
+            <span class="checkbox done" aria-hidden="true"></span>
+            <div>
+              <h3>Water bottle filled</h3>
+              <div class="meta">Last confirmed when you remembered this page exists</div>
+            </div>
+          </div>
+          <div class="todo">
+            <span class="checkbox" aria-hidden="true"></span>
+            <div>
+              <h3>Charge battery pack</h3>
+              <div class="meta">Socket window before evening talks</div>
+            </div>
+          </div>
+          <div class="todo">
+            <span class="checkbox" aria-hidden="true"></span>
+            <div>
+              <h3>Find badge cable</h3>
+              <div class="meta">Probably in the small black pouch</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel span-3 lg-4">
+        <div class="panel-header">
+          <h2 class="panel-title">Weather</h2>
+        </div>
+        <div class="panel-body weather">
+          <div class="stat">
+            <span class="label">Now</span>
+            <strong>{{.Weather.Now}}</strong>
+          </div>
+          <div class="stat">
+            <span class="label">Rain</span>
+            <strong>{{.Weather.Rain}}</strong>
+          </div>
+          <div class="stat">
+            <span class="label">Night</span>
+            <strong>{{.Weather.Night}}</strong>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel span-6 lg-5">
+        <div class="panel-header">
+          <h2 class="panel-title">Bar Status</h2>
+          <span class="tag">{{.Bar.StateLabel}}</span>
+        </div>
+        <div class="panel-body bar-status">
+          <div class="bar-openings">
+            {{range .Bar.Bars}}
+            <div class="stat">
+              <span class="label">{{.Name}}</span>
+              <strong>{{.TimingLabel}}</strong>
+              <span class="meta">{{.StateLabel}} // {{.OnTapCount}} on tap</span>
+            </div>
+            {{end}}
+          </div>
+          <div class="bar-stats">
+            <div class="stat">
+              <span class="label">Main On Tap</span>
+              <strong>{{.Bar.DrinkCount}}</strong>
+            </div>
+            <div class="stat">
+              <span class="label">Consumption</span>
+              <strong>{{.Bar.ConsumptionPct}}</strong>
+            </div>
+            <div class="stat">
+              <span class="label">Cached</span>
+              <strong>{{.Bar.CachedAtLabel}}</strong>
+            </div>
+          </div>
+          <div class="mini-list bar-list">
+            {{range .Bar.Drinks}}
+              <div>
+                <strong>{{.Name}}</strong>
+                <span>{{.Meta}} // {{.RemainingPct}} remaining</span>
+              </div>
+            {{else}}
+              <p class="subtle">No on-tap data available right now.</p>
+            {{end}}
+          </div>
+          <div class="mini-list bar-list">
+            {{range .Bar.ClubMate}}
+              <div>
+                <strong>{{.Name}}</strong>
+                <span>{{.Remaining}} remaining // {{.Location}}</span>
+              </div>
+            {{else}}
+              <p class="subtle">Club Mate stock is not available right now.</p>
+            {{end}}
+          </div>
+          {{range .Bar.Warnings}}
+            <p class="subtle">{{.}}</p>
+          {{end}}
+        </div>
+      </article>
+
+      <article class="panel span-3 lg-4">
+        <div class="panel-header">
+          <h2 class="panel-title">Telegram</h2>
+          <span class="tag">Bot later</span>
+        </div>
+        <div class="panel-body">
+          <p class="subtle">Planned commands: <span class="timecode">/next</span>, <span class="timecode">/where</span>, <span class="timecode">/quiet</span>.</p>
+          <p class="subtle">Reminder flow will use the same schedule data shown here.</p>
+          <div class="tag-row" aria-label="Telegram quick commands">
+            <span class="tag">/next</span>
+            <span class="tag">/faves</span>
+            <span class="tag">/battery</span>
+            <span class="tag">/quiet</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel span-6 lg-4">
+        <div class="panel-header">
+          <h2 class="panel-title">Unscheduled Faves</h2>
+          <span class="tag">Holding bay</span>
+        </div>
+        <div class="panel-body mini-list">
+          {{range .Unscheduled}}
+            <a href="{{.Link}}">
+              <strong>{{.Title}}</strong>
+              <span>{{.Type}} // {{.Names}}</span>
+            </a>
+          {{else}}
+            <p class="subtle">No unscheduled favourites in the current feed.</p>
+          {{end}}
+        </div>
+      </article>
+
+      <article class="panel span-6 lg-4">
+        <div class="panel-header">
+          <h2 class="panel-title">Notes Buffer</h2>
+          <span class="tag">Local</span>
+        </div>
+        <div class="panel-body notes">
+          {{range .Notes}}<p>{{.}}</p>{{end}}
+        </div>
+      </article>
+    </section>
+
+    <footer class="footer">
+      EMF DASHBOARD // STATIC HTML OVER SERVER DATA // NO CLIENT JAVASCRIPT
+    </footer>
+  </main>
+</body>
+</html>

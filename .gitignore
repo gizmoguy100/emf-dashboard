@@ -1,0 +1,22 @@
+.env
+.env.*
+!.env.example
+
+config/config.yaml
+config/*.local.yaml
+config/*.secret.yaml
+
+# Local database/runtime state
+data/
+tmp/
+
+# Go build/test output
+bin/
+dist/
+coverage.out
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,50 @@
+# Copy to config/config.yaml for local development if you want file-based config.
+# This file is safe to commit because it contains placeholders only.
+
+app:
+  environment: development
+  http_addr: ":8080"
+  public_base_url: "http://localhost:8080"
+  public_hostname: "localhost"
+  http_timeout: "12s"
+
+owner:
+  # Do not hard-code personal details in source code.
+  display_name: "Your Name"
+  timezone: "Europe/London"
+
+event:
+  name: "Electromagnetic Field"
+  short_name: "EMF"
+  timezone: "Europe/London"
+  # Set these when the event dates are fixed for the deployment.
+  starts_at: ""
+  ends_at: ""
+
+database:
+  # Safe placeholder only. Put real production credentials in ignored config
+  # or your deployment secret store.
+  url: "postgres://emf_dashboard:change-me-local-only@postgres:5432/emf_dashboard?sslmode=disable"
+
+external_apis:
+  emf:
+    base_url: "https://www.emfcamp.org"
+    token: ""
+    # Full favourites JSON URL, including token. Do not commit a real value.
+    favourites_url: ""
+    request_timeout: "10s"
+  bar:
+    enabled: true
+    # Test service before the event; switch to https://bar.emf.camp when live.
+    base_url: "https://emftill.assorted.org.uk"
+    poll_interval: "10m"
+
+telegram:
+  enabled: false
+  bot_token: ""
+  allowed_chat_ids: []
+
+features:
+  talks_sync: true
+  reminders: true
+  telegram_bot: false
