@@ -48,3 +48,14 @@ features:
   talks_sync: true
   reminders: true
   telegram_bot: false
+
+domain:
+  # Caddy serves this hostname and its wildcard sibling:
+  #   emf.example.com
+  #   *.emf.example.com
+  hostname: "emf.example.com"
+  dns_provider: "cloudflare"
+  cloudflare:
+    # Needs Cloudflare Zone:DNS:Edit and Zone:Zone:Read for the relevant zone.
+    # Keep the real value only in ignored local config or a deployment secret.
+    api_token: ""

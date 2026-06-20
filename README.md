@@ -94,6 +94,25 @@ Do not commit:
 - Telegram tokens
 - production hostnames/passwords
 
+## HTTPS With Caddy
+
+The Compose stack includes Caddy in front of the Go app. Caddy terminates TLS
+for the configured hostname and wildcard hostname, then proxies to `app:8080`
+on the private Compose network.
+
+For production, set this in ignored `config/config.yaml`:
+
+```yaml
+domain:
+  hostname: "emf.example.com"
+  dns_provider: "cloudflare"
+  cloudflare:
+    api_token: "..."
+```
+
+The Cloudflare token needs `Zone:DNS:Edit` and `Zone:Zone:Read` on the relevant
+zone so Caddy can complete DNS-01 certificate challenges.
+
 ## Notes
 
 PostgreSQL is in Compose because the app will probably want real state later: reminder state, cached API payloads, Telegram bot state, preferences, and sync checkpoints. It is not doing much yet.

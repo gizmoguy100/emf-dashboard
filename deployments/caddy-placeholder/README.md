@@ -1,10 +1,10 @@
 # Caddy Placeholder
 
-Caddy is intentionally not part of the initial Compose stack.
+Caddy is now wired into the Compose stack through `../caddy`.
 
-When production deployment is clearer, add either:
+This placeholder directory remains only so older notes do not point at a
+missing path. The production config lives in:
 
-- a separate production Compose override that includes Caddy, or
-- host-level Caddy config outside this public repo.
-
-Production Caddy config should avoid committing private hostnames, email addresses, or certificate-related secrets unless they are generic examples.
+- `deployments/caddy/Dockerfile`
+- `deployments/caddy/Caddyfile`
+- `deployments/caddy/start-caddy.sh`
