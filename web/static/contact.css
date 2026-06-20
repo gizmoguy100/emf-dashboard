@@ -1,0 +1,90 @@
+:root {
+  color-scheme: light;
+  --paper: #f7f1d7;
+  --ink: #151515;
+  --blue: #163d8f;
+  --red: #b8203a;
+  --green: #2d7d46;
+  --line: #151515;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background:
+    linear-gradient(90deg, rgba(22, 61, 143, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(22, 61, 143, 0.08) 1px, transparent 1px),
+    var(--paper);
+  background-size: 18px 18px;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  padding: 24px;
+  color: var(--ink);
+  font: 17px/1.5 "Courier New", Courier, monospace;
+}
+
+main {
+  width: min(680px, 100%);
+  padding: 22px;
+  border: 3px double var(--line);
+  background: rgba(255, 252, 238, 0.94);
+  box-shadow: 8px 8px 0 rgba(21, 21, 21, 0.16);
+}
+
+h1 {
+  margin: 0 0 18px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--line);
+  color: var(--blue);
+  font-size: clamp(2rem, 9vw, 3.6rem);
+  line-height: 0.95;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+p {
+  margin: 0 0 12px;
+}
+
+strong {
+  color: var(--red);
+}
+
+ul {
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  margin: 8px 0;
+}
+
+li::before {
+  content: ">> ";
+  color: var(--green);
+  font-weight: 700;
+}
+
+a {
+  color: var(--blue);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--red);
+}
+
+@media (min-width: 720px) {
+  body {
+    padding: 42px;
+  }
+}
