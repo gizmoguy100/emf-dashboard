@@ -1,17 +1,22 @@
 # EMF Dashboard
 
-This is Alex's little EMF 2026 dashboard thing.
+Alex's little EMF 2026 personal dashboard thing.
 
 It was, with very little shame, vibe coded with Codex in a burst of "what if my festival dashboard looked like a 90s space terminal?" energy. It is a work in progress. It may become genuinely useful. It may also become a highly themed way to discover that the bar is closed.
 
-Current features:
+## Current Features
 
-- server-rendered Go web app
-- Docker Compose setup
-- EMF favourites schedule display
-- EMF bar status using the test/live bar API
-- 90s space dashboard styling
-- no client-side JavaScript (for now)
+- Server-rendered Go web app with a 90s space dashboard style.
+- Docker Compose stack with the app, PostgreSQL, and Caddy.
+- Public contact page plus dashboard host routing.
+- Caddy HTTPS with Cloudflare DNS-01 certificate support.
+- EMF favourites schedule display.
+- EMF bar status from the test/live bar API.
+- Open-Meteo current weather for Eastnor/Ledbury.
+- Home Assistant phone vitals, including configurable metrics and daily-delta values.
+- Telegram-backed MiniBlog for short text updates.
+- PostgreSQL-backed API caching and bot state.
+- Tiny client-side refresh script for periodic dashboard reloads.
 
 ## Build And Run
 
@@ -28,10 +33,11 @@ Then run it:
 docker compose up --build
 ```
 
-Open:
+Local URLs:
 
 ```text
-http://localhost:8080
+http://localhost:8080/
+http://localhost:8080/dashboard
 ```
 
 Stop it:
@@ -42,7 +48,7 @@ docker compose down
 
 ## Configure It
 
-`.env` is just the tiny Docker Compose bootstrap file. Keep it boring:
+`.env` is only the Docker Compose bootstrap file. Keep it boring:
 
 ```sh
 APP_CONFIG_FILE=/app/config/config.yaml
@@ -55,13 +61,16 @@ The real app config lives in:
 config/config.yaml
 ```
 
-That file is ignored by Git because it can contain private URLs and tokens.
+That file is ignored by Git because it can contain private URLs, bot tokens, Home Assistant tokens, database passwords, and DNS provider credentials.
 
-Useful values:
+Start from `config/config.example.yaml`. Useful sections:
 
 ```yaml
 owner:
-  display_name: "Alex"
+  display_name: "Your Name"
+
+database:
+  url: "postgres://emf_dashboard:change-me-local-only@postgres:5432/emf_dashboard?sslmode=disable"
 
 external_apis:
   emf:
@@ -69,13 +78,73 @@ external_apis:
   bar:
     enabled: true
     base_url: "https://emftill.assorted.org.uk"
-    poll_interval: "10m"
+    poll_interval: "15m"
+  weather:
+    enabled: true
+    base_url: "https://api.open-meteo.com"
+    location: "Eastnor Deer Park"
+    latitude: 52.0367
+    longitude: -2.3918
+    cache_interval: "15m"
+  home_assistant:
+    enabled: true
+    base_url: "https://home-assistant.example.com"
+    access_token: "..."
+    cache_interval: "10m"
+
+telegram:
+  enabled: true
+  bot_token: "..."
+  allowed_chat_ids:
+    - 123456789
+  miniblog:
+    max_length: 140
+    dashboard_limit: 8
 ```
 
 For the bar API:
 
-- before EMF 2026, use `https://emftill.assorted.org.uk`
-- when live event data is ready, switch to `https://bar.emf.camp`
+- Before EMF 2026, use `https://emftill.assorted.org.uk`.
+- When live event data is ready, switch to `https://bar.emf.camp`.
+
+## Telegram MiniBlog
+
+The MiniBlog is a small text-only posting flow driven by a Telegram bot.
+
+1. Create a bot with BotFather and put its token in ignored `config/config.yaml`.
+2. Send the bot a message.
+3. Use Telegram `getUpdates` or the app logs/tools to find your chat/user id.
+4. Add that id to `telegram.allowed_chat_ids`.
+5. Restart the app.
+
+Only allowed chat ids can post. Plain text messages become MiniBlog posts if they are within `telegram.miniblog.max_length`. The bot also supports:
+
+- `/start`
+- `/help`
+- `/post`
+- `/latest`
+- `/delete_latest`
+
+The bot uses Telegram long polling, so no webhook route is required.
+
+## HTTPS With Caddy
+
+The Compose stack includes Caddy in front of the Go app. Caddy terminates TLS for the configured hostname and wildcard hostname, then proxies to `app:8080` on the private Compose network.
+
+For production, set this in ignored `config/config.yaml`:
+
+```yaml
+domain:
+  hostname: "emf.example.com"
+  dashboard_hostname: "dashboard.emf.example.com"
+  dns_provider: "cloudflare"
+  cloudflare:
+    api_token: "..."
+```
+
+The Cloudflare token needs `Zone:DNS:Edit` and `Zone:Zone:Read` on the relevant zone so Caddy can complete DNS-01 certificate challenges.
+
+The contact page is served from `domain.hostname`. The dashboard is served from `domain.dashboard_hostname`, with `/dashboard` retained as a local fallback.
 
 ## Public Repo Rule
 
@@ -91,34 +160,28 @@ Do not commit:
 - `.env`
 - `config/config.yaml`
 - real favourites URLs
-- Telegram tokens
-- production hostnames/passwords
+- Telegram bot tokens
+- Home Assistant access tokens
+- Cloudflare API tokens
+- production hostnames/passwords unless they are intentionally public placeholders
 
-## HTTPS With Caddy
+## Verification
 
-The Compose stack includes Caddy in front of the Go app. Caddy terminates TLS
-for the configured hostname and wildcard hostname, then proxies to `app:8080`
-on the private Compose network.
+After Go, template, or CSS changes:
 
-For production, set this in ignored `config/config.yaml`:
-
-```yaml
-domain:
-  hostname: "emf.example.com"
-  dashboard_hostname: "dashboard.emf.example.com"
-  dns_provider: "cloudflare"
-  cloudflare:
-    api_token: "..."
+```sh
+go test ./...
+docker compose build app
+docker compose up -d --force-recreate app
+curl -fsS http://localhost:8080/healthz
 ```
 
-The Cloudflare token needs `Zone:DNS:Edit` and `Zone:Zone:Read` on the relevant
-zone so Caddy can complete DNS-01 certificate challenges.
+Useful render check:
 
-The contact page is served from `domain.hostname`. The dashboard is served from
-`domain.dashboard_hostname`, with `/dashboard` retained as a local fallback.
+```sh
+curl -fsS -H 'Host: dashboard.emf.example.com' http://localhost:8080/ | grep -E "Orbit Desk|MiniBlog|Bar Status|Schedule Radar"
+```
 
 ## Notes
 
-PostgreSQL is in Compose because the app will probably want real state later: reminder state, cached API payloads, Telegram bot state, preferences, and sync checkpoints. It is not doing much yet.
-
-Caddy is not wired in yet. Production can put Caddy, Traefik, nginx, or some other ingress in front of the Go app on port `8080`.
+PostgreSQL stores API cache rows, Home Assistant/weather/bar snapshots, Telegram MiniBlog posts, and bot polling state. The app still degrades to sample or missing-state UI where private config is absent, so the repo remains clonable without Alex's credentials.
