@@ -38,11 +38,42 @@ external_apis:
     # Test service before the event; switch to https://bar.emf.camp when live.
     base_url: "https://emftill.assorted.org.uk"
     poll_interval: "15m"
+  weather:
+    enabled: false
+    base_url: "https://api.open-meteo.com"
+    location: "Eastnor Deer Park"
+    latitude: 52.0367
+    longitude: -2.3918
+    cache_interval: "15m"
+  home_assistant:
+    enabled: false
+    base_url: "https://home-assistant.example.com"
+    # Create a long-lived access token from your Home Assistant profile.
+    access_token: ""
+    cache_interval: "10m"
+    metrics:
+      - label: "Steps Today"
+        entity_id: "sensor.pixel_8_pro_steps_sensor"
+        mode: "daily_delta"
+        unit: "steps"
+      - label: "Daily Distance"
+        entity_id: "sensor.pixel_8_pro_daily_distance"
+        unit: "m"
+      - label: "Phone Battery"
+        entity_id: "sensor.pixel_8_pro_battery_level"
+        display: "progress"
+        unit: "%"
+      - label: "Battery State"
+        entity_id: "sensor.pixel_8_pro_battery_state"
 
 telegram:
   enabled: false
   bot_token: ""
   allowed_chat_ids: []
+  poll_interval: "2s"
+  miniblog:
+    max_length: 140
+    dashboard_limit: 8
 
 features:
   talks_sync: true
