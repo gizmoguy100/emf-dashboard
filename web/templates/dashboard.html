@@ -20,7 +20,7 @@
       <div class="identity">
         <div class="kicker">EMF 2026 // personal mission control</div>
         <h1>Orbit Desk</h1>
-        <p class="subtle">Field-ready dashboard for favourite talks, reminders, camp logistics, signal checks, and power levels.</p>
+        <p class="subtle">Like this dashboard? Clone the repo and make your own: <a href="https://github.com/gizmoguy100/emf-dashboard/">gizmoguy100/emf-dashboard</a>.</p>
       </div>
       <section class="top-status" aria-label="Current status">
         <div class="status-pill">
@@ -31,6 +31,14 @@
           <span class="label">Local Time</span>
           <strong>{{.NowLabel}}</strong>
         </div>
+        <div class="status-pill">
+          <span class="label">{{if .Weather.Location}}{{.Weather.Location}}{{else}}Weather{{end}}</span>
+          <strong>{{.Weather.HeaderLabel}}</strong>
+        </div>
+        <a class="status-pill status-link" href="https://map.emfcamp.org/">
+          <span class="label">EMF Map</span>
+          <strong>Open Map</strong>
+        </a>
       </section>
     </header>
 
@@ -100,21 +108,25 @@
       <article class="panel span-3 lg-3">
         <div class="panel-header">
           <h2 class="panel-title">Vitals</h2>
+          <span class="tag">{{.HAVitals.StateLabel}}</span>
         </div>
-        <div class="panel-body signal">
-          <div>
-            <div class="label">Favourite Count</div>
-            <div class="bar count"></div>
-          </div>
-          <div>
-            <div class="label">Power Bank</div>
-            <div class="bar warn"></div>
-          </div>
-          <div>
-            <div class="label">Social Battery</div>
-            <div class="bar hot"></div>
-          </div>
-          <p class="subtle">{{.FavouriteCount}} favourites loaded. Suggested action: water, charge, then go outside.</p>
+        <div class="panel-body vitals-list">
+          {{range .HAVitals.Items}}
+            <div class="stat {{if .HasProgress}}stat-progress{{end}}">
+              <span class="label">{{.Label}}</span>
+              <strong>{{.Value}}</strong>
+              {{if .HasProgress}}
+                <div class="vital-progress" role="meter" aria-label="{{.Label}}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{.ProgressPercent}}">
+                  <span style="width: {{.ProgressPercent}}%;"></span>
+                </div>
+              {{end}}
+              <span class="meta">{{.Meta}}</span>
+            </div>
+          {{else}}
+            <p class="subtle">Home Assistant phone vitals are not available yet.</p>
+          {{end}}
+          {{if .HAVitals.CachedAtLabel}}<p class="subtle">Home Assistant cached at {{.HAVitals.CachedAtLabel}}.</p>{{end}}
+          {{range .HAVitals.Warnings}}<p class="subtle">{{.}}</p>{{end}}
         </div>
       </article>
 
@@ -168,20 +180,23 @@
       <article class="panel span-3 lg-4">
         <div class="panel-header">
           <h2 class="panel-title">Weather</h2>
+          <span class="tag">{{.Weather.StateLabel}}</span>
         </div>
         <div class="panel-body weather">
           <div class="stat">
-            <span class="label">Now</span>
+            <span class="label">Temperature</span>
             <strong>{{.Weather.Now}}</strong>
           </div>
           <div class="stat">
-            <span class="label">Rain</span>
+            <span class="label">Precip</span>
             <strong>{{.Weather.Rain}}</strong>
           </div>
           <div class="stat">
-            <span class="label">Night</span>
+            <span class="label">Layers</span>
             <strong>{{.Weather.Night}}</strong>
           </div>
+          {{if .Weather.CachedAtLabel}}<p class="subtle">Weather cached at {{.Weather.CachedAtLabel}}.</p>{{end}}
+          {{if .Weather.Warning}}<p class="subtle">{{.Weather.Warning}}</p>{{end}}
         </div>
       </article>
 
@@ -242,18 +257,21 @@
 
       <article class="panel span-3 lg-4">
         <div class="panel-header">
-          <h2 class="panel-title">Telegram</h2>
-          <span class="tag">Bot later</span>
+          <h2 class="panel-title">MiniBlog</h2>
+          <span class="tag">{{.MiniBlog.StateLabel}}</span>
         </div>
-        <div class="panel-body">
-          <p class="subtle">Planned commands: <span class="timecode">/next</span>, <span class="timecode">/where</span>, <span class="timecode">/quiet</span>.</p>
-          <p class="subtle">Reminder flow will use the same schedule data shown here.</p>
-          <div class="tag-row" aria-label="Telegram quick commands">
-            <span class="tag">/next</span>
-            <span class="tag">/faves</span>
-            <span class="tag">/battery</span>
-            <span class="tag">/quiet</span>
+        <div class="panel-body miniblog">
+          <div class="miniblog-posts" aria-label="MiniBlog posts">
+            {{range .MiniBlog.Posts}}
+              <article class="miniblog-post">
+                <p>{{.Body}}</p>
+                <time>{{.TimeLabel}}</time>
+              </article>
+            {{else}}
+              <p class="subtle">No MiniBlog posts yet. Use the Telegram bot to publish a short update.</p>
+            {{end}}
           </div>
+          {{if .MiniBlog.Warning}}<p class="subtle">{{.MiniBlog.Warning}}</p>{{end}}
         </div>
       </article>
 

@@ -128,6 +128,12 @@ p {
   box-shadow: 4px 4px 0 rgba(73, 245, 211, 0.16);
 }
 
+a.status-pill {
+  display: block;
+  color: var(--text);
+  text-decoration: none;
+}
+
 .status-pill strong {
   display: block;
   margin-top: 2px;
@@ -264,6 +270,26 @@ p {
   text-transform: capitalize;
 }
 
+.stat-progress strong {
+  color: var(--warn);
+}
+
+.vital-progress {
+  height: 12px;
+  margin: 8px 0 2px;
+  border: 1px solid rgba(73, 245, 211, 0.5);
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.2);
+}
+
+.vital-progress span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background:
+    linear-gradient(90deg, var(--ok), var(--warn));
+}
+
 .tag-row {
   display: flex;
   flex-wrap: wrap;
@@ -354,7 +380,8 @@ p {
   background: var(--ok);
 }
 
-.signal {
+.signal,
+.vitals-list {
   display: grid;
   gap: 10px;
 }
@@ -456,6 +483,40 @@ p {
 .notes {
   display: grid;
   gap: 10px;
+}
+
+.miniblog {
+  display: grid;
+  gap: 10px;
+}
+
+.miniblog-posts {
+  display: grid;
+  gap: 10px;
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.miniblog-post {
+  border-bottom: 1px dashed rgba(73, 245, 211, 0.32);
+  padding-bottom: 9px;
+}
+
+.miniblog-post:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.miniblog-post p {
+  margin: 0 0 4px;
+  line-height: 1.35;
+}
+
+.miniblog-post time {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.72rem;
 }
 
 .footer {
