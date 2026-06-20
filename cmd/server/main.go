@@ -18,15 +18,17 @@ import (
 )
 
 type config struct {
-	Addr          string
-	OwnerName     string
-	PublicBaseURL string
-	FavouritesURL string
-	BarAPIBaseURL string
-	BarEnabled    bool
-	BarPollEvery  time.Duration
-	EventTZ       string
-	HTTPTimeout   time.Duration
+	Addr              string
+	OwnerName         string
+	PublicBaseURL     string
+	PublicHostname    string
+	DashboardHostname string
+	FavouritesURL     string
+	BarAPIBaseURL     string
+	BarEnabled        bool
+	BarPollEvery      time.Duration
+	EventTZ           string
+	HTTPTimeout       time.Duration
 }
 
 type fileConfig struct {
@@ -56,6 +58,11 @@ type fileConfig struct {
 			PollInterval string `yaml:"poll_interval"`
 		} `yaml:"bar"`
 	} `yaml:"external_apis"`
+	Domain struct {
+		Hostname          string `yaml:"hostname"`
+		Name              string `yaml:"name"`
+		DashboardHostname string `yaml:"dashboard_hostname"`
+	} `yaml:"domain"`
 }
 
 type favourite struct {
@@ -205,6 +212,20 @@ type pageData struct {
 	Warnings         []string
 }
 
+type contactLink struct {
+	Label string
+	Value string
+	Href  string
+	Meta  string
+}
+
+type contactPageData struct {
+	OwnerName    string
+	NowLabel     string
+	DashboardURL string
+	Links        []contactLink
+}
+
 type weather struct {
 	Now   string
 	Rain  string
@@ -223,7 +244,10 @@ func main() {
 	cfg := loadConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	tmpl := template.Must(template.ParseFiles("web/templates/dashboard.html"))
+	tmpl := template.Must(template.ParseFiles(
+		"web/templates/dashboard.html",
+		"web/templates/contact.html",
+	))
 	srv := &server{
 		cfg:       cfg,
 		logger:    logger,
@@ -232,7 +256,8 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", srv.handleDashboard)
+	mux.HandleFunc("/", srv.handleHome)
+	mux.HandleFunc("/dashboard", srv.handleDashboard)
 	mux.HandleFunc("/healthz", srv.handleHealth)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 
@@ -251,14 +276,16 @@ func main() {
 
 func loadConfig() config {
 	cfg := config{
-		Addr:          ":8080",
-		OwnerName:     "Config.User",
-		PublicBaseURL: "http://localhost:8080",
-		BarAPIBaseURL: "https://emftill.assorted.org.uk",
-		BarEnabled:    true,
-		BarPollEvery:  10 * time.Minute,
-		EventTZ:       "Europe/London",
-		HTTPTimeout:   12 * time.Second,
+		Addr:              ":8080",
+		OwnerName:         "Config.User",
+		PublicBaseURL:     "http://localhost:8080",
+		PublicHostname:    "localhost",
+		DashboardHostname: "localhost",
+		BarAPIBaseURL:     "https://emftill.assorted.org.uk",
+		BarEnabled:        true,
+		BarPollEvery:      10 * time.Minute,
+		EventTZ:           "Europe/London",
+		HTTPTimeout:       12 * time.Second,
 	}
 
 	configFile := env("APP_CONFIG_FILE", "config/config.yaml")
@@ -287,6 +314,10 @@ func applyConfigFile(path string, cfg *config) error {
 	applyString(&cfg.Addr, file.App.HTTPAddr)
 	applyString(&cfg.OwnerName, file.Owner.DisplayName)
 	applyString(&cfg.PublicBaseURL, file.App.PublicBaseURL)
+	applyString(&cfg.PublicHostname, file.App.PublicHostname)
+	applyString(&cfg.PublicHostname, file.Domain.Name)
+	applyString(&cfg.PublicHostname, file.Domain.Hostname)
+	applyString(&cfg.DashboardHostname, file.Domain.DashboardHostname)
 	applyString(&cfg.FavouritesURL, file.ExternalAPIs.EMF.FavouritesURL)
 	applyString(&cfg.BarAPIBaseURL, file.ExternalAPIs.Bar.BaseURL)
 	cfg.BarEnabled = file.ExternalAPIs.Bar.Enabled
@@ -341,11 +372,61 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok\n"))
 }
 
+func (s *server) handleHome(w http.ResponseWriter, r *http.Request) {
+	if cleanHostname(r.Host) == s.cfg.DashboardHostname {
+		s.handleDashboard(w, r)
+		return
+	}
+	s.handleContact(w, r)
+}
+
 func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	data := s.page(r.Context())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, "dashboard.html", data); err != nil {
 		s.logger.Error("render dashboard", "error", err)
+	}
+}
+
+func (s *server) handleContact(w http.ResponseWriter, _ *http.Request) {
+	data := s.contactPage()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.templates.ExecuteTemplate(w, "contact.html", data); err != nil {
+		s.logger.Error("render contact", "error", err)
+	}
+}
+
+func cleanHostname(host string) string {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if i := strings.LastIndex(host, ":"); i > -1 {
+		return host[:i]
+	}
+	return host
+}
+
+func (s *server) contactPage() contactPageData {
+	loc, err := time.LoadLocation(s.cfg.EventTZ)
+	if err != nil {
+		loc = time.Local
+	}
+
+	dashboardURL := "/dashboard"
+	if s.cfg.DashboardHostname != "" && s.cfg.DashboardHostname != "localhost" {
+		dashboardURL = "https://" + s.cfg.DashboardHostname
+	}
+
+	return contactPageData{
+		OwnerName:    s.cfg.OwnerName,
+		NowLabel:     time.Now().In(loc).Format("15:04 MST"),
+		DashboardURL: dashboardURL,
+		Links: []contactLink{
+			{Label: "EMF Phone", Value: "9221", Href: "tel:9221", Meta: "camp phone system"},
+			{Label: "Email", Value: "alex@ferriroli.com", Href: "mailto:alex@ferriroli.com", Meta: "best for async"},
+			{Label: "LinkedIn", Value: "alex-f-51642417", Href: "https://www.linkedin.com/in/alex-f-51642417/", Meta: "professional channel"},
+			{Label: "Telegram", Value: "@gizmoguy100", Href: "https://t.me/gizmoguy100", Meta: "fast ping"},
+			{Label: "Signal", Value: "signal.me contact link", Href: "https://signal.me/#eu/cnBA--khFXE2AuaNKQoFCrXAEqLhqHqP_v59GAxEPSR5DUJqPJVHFr45_9KNUW9E", Meta: "secure chat"},
+			{Label: "WhatsApp", Value: "QR contact link", Href: "https://wa.me/qr/DQ7PO4D2KZSBH1", Meta: "mobile chat"},
+		},
 	}
 }
 

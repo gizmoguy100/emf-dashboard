@@ -105,6 +105,7 @@ For production, set this in ignored `config/config.yaml`:
 ```yaml
 domain:
   hostname: "emf.example.com"
+  dashboard_hostname: "dashboard.emf.example.com"
   dns_provider: "cloudflare"
   cloudflare:
     api_token: "..."
@@ -112,6 +113,9 @@ domain:
 
 The Cloudflare token needs `Zone:DNS:Edit` and `Zone:Zone:Read` on the relevant
 zone so Caddy can complete DNS-01 certificate challenges.
+
+The contact page is served from `domain.hostname`. The dashboard is served from
+`domain.dashboard_hostname`, with `/dashboard` retained as a local fallback.
 
 ## Notes
 

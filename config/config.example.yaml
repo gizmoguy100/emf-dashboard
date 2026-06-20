@@ -54,6 +54,7 @@ domain:
   #   emf.example.com
   #   *.emf.example.com
   hostname: "emf.example.com"
+  dashboard_hostname: "dashboard.emf.example.com"
   dns_provider: "cloudflare"
   cloudflare:
     # Needs Cloudflare Zone:DNS:Edit and Zone:Zone:Read for the relevant zone.
