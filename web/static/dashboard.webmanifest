@@ -1,0 +1,26 @@
+{
+  "name": "EMF Orbit Desk",
+  "short_name": "Orbit Desk",
+  "description": "Personal EMF dashboard for schedule, bar status, and camp reminders.",
+  "start_url": "https://dashboard.emf.m0idm.uk/",
+  "scope": "https://dashboard.emf.m0idm.uk/",
+  "display": "standalone",
+  "background_color": "#090b18",
+  "theme_color": "#090b18",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/static/favicons/dashboard.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open dashboard",
+      "short_name": "Dashboard",
+      "url": "https://dashboard.emf.m0idm.uk/"
+    }
+  ]
+}

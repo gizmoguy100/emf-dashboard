@@ -234,6 +234,14 @@ p {
   text-shadow: 4px 4px 0 rgba(255, 79, 216, 0.5);
 }
 
+.countdown-line {
+  margin: 6px 0 12px;
+  color: var(--line);
+  font-family: var(--mono);
+  font-size: clamp(1.1rem, 5vw, 2rem);
+  line-height: 1;
+}
+
 .subtle {
   margin: 0 0 10px;
   color: var(--muted);
@@ -391,6 +399,11 @@ p {
 .bar-status {
   display: grid;
   gap: 12px;
+}
+
+.cache-list {
+  display: grid;
+  gap: 8px;
 }
 
 .bar-openings {

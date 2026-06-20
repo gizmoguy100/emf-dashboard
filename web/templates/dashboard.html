@@ -3,9 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090b18">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Orbit Desk">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>EMF Dashboard</title>
   <link rel="icon" type="image/png" href="/static/favicons/dashboard.png">
+  <link rel="apple-touch-icon" href="/static/favicons/dashboard.png">
+  <link rel="manifest" href="/static/dashboard.webmanifest">
   <link rel="stylesheet" href="/static/dashboard.css">
+  <script src="/static/dashboard-refresh.js" defer></script>
 </head>
 <body>
   <main class="shell">
@@ -24,14 +31,6 @@
           <span class="label">Local Time</span>
           <strong>{{.NowLabel}}</strong>
         </div>
-        <div class="status-pill">
-          <span class="label">Mode</span>
-          <strong>{{.Mode}}</strong>
-        </div>
-        <div class="status-pill">
-          <span class="label">Signal</span>
-          <strong>{{.Signal}}</strong>
-        </div>
       </section>
     </header>
 
@@ -43,11 +42,12 @@
       <article class="panel mission span-6 lg-7">
         <div class="panel-header">
           <h2 class="panel-title">Next Critical Thing</h2>
-          {{if .HasNext}}<span class="tag">{{.Next.Countdown}}</span>{{else}}<span class="tag">No schedule</span>{{end}}
+          {{if .HasNext}}<span class="tag">Next up</span>{{else}}<span class="tag">No schedule</span>{{end}}
         </div>
         <div class="panel-body">
           {{if .HasNext}}
             <p class="big-number">{{.Next.StartLabel}}</p>
+            <p class="countdown-line">{{.Next.Countdown}}</p>
             <h2>{{.Next.Title}}</h2>
             <p class="subtle">{{.Next.Venue}} // {{.Next.Names}}</p>
             <p class="subtle">{{.Next.Description}}</p>
@@ -145,6 +145,23 @@
               <div class="meta">Probably in the small black pouch</div>
             </div>
           </div>
+        </div>
+      </article>
+
+      <article class="panel span-3 lg-4">
+        <div class="panel-header">
+          <h2 class="panel-title">Cache Status</h2>
+          <span class="tag">API kindness</span>
+        </div>
+        <div class="panel-body cache-list">
+          {{range .Cache}}
+            <div class="stat">
+              <span class="label">{{.Name}}</span>
+              <strong>{{.StateLabel}}</strong>
+              <span class="meta">Fetched {{.FetchedLabel}} // expires {{.ExpiresLabel}}</span>
+              {{if .ErrorLabel}}<span class="meta">{{.ErrorLabel}}</span>{{end}}
+            </div>
+          {{end}}
         </div>
       </article>
 
@@ -267,10 +284,6 @@
         </div>
       </article>
     </section>
-
-    <footer class="footer">
-      EMF DASHBOARD // STATIC HTML OVER SERVER DATA // NO CLIENT JAVASCRIPT
-    </footer>
   </main>
 </body>
 </html>

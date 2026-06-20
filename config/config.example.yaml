@@ -6,7 +6,7 @@ app:
   http_addr: ":8080"
   public_base_url: "http://localhost:8080"
   public_hostname: "localhost"
-  http_timeout: "12s"
+  http_timeout: "5s"
 
 owner:
   # Do not hard-code personal details in source code.
@@ -32,12 +32,12 @@ external_apis:
     token: ""
     # Full favourites JSON URL, including token. Do not commit a real value.
     favourites_url: ""
-    request_timeout: "10s"
+    request_timeout: "5s"
   bar:
     enabled: true
     # Test service before the event; switch to https://bar.emf.camp when live.
     base_url: "https://emftill.assorted.org.uk"
-    poll_interval: "10m"
+    poll_interval: "15m"
 
 telegram:
   enabled: false

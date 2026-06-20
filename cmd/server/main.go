@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"html/template"
+	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"sort"
@@ -13,8 +16,23 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"gopkg.in/yaml.v3"
+)
+
+const (
+	cacheKeyFavourites = "emf_favourites"
+	cacheKeyBar        = "bar_snapshot"
+
+	defaultAPICacheTTL       = 15 * time.Minute
+	defaultAPITimeout        = 5 * time.Second
+	backgroundRetryCooldown  = 10 * time.Minute
+	backgroundRetryAttempts  = 3
+	backgroundRetryWait      = 15 * time.Second
+	apiCacheDatabaseTimeout  = 2 * time.Second
+	apiCacheStatusTimeFormat = "Mon 15:04"
 )
 
 type config struct {
@@ -23,10 +41,12 @@ type config struct {
 	PublicBaseURL     string
 	PublicHostname    string
 	DashboardHostname string
+	DatabaseURL       string
 	FavouritesURL     string
 	BarAPIBaseURL     string
 	BarEnabled        bool
 	BarPollEvery      time.Duration
+	APICacheTTL       time.Duration
 	EventTZ           string
 	HTTPTimeout       time.Duration
 }
@@ -45,6 +65,9 @@ type fileConfig struct {
 	Event struct {
 		Timezone string `yaml:"timezone"`
 	} `yaml:"event"`
+	Database struct {
+		URL string `yaml:"url"`
+	} `yaml:"database"`
 	ExternalAPIs struct {
 		EMF struct {
 			BaseURL        string `yaml:"base_url"`
@@ -172,9 +195,26 @@ type barSnapshot struct {
 	ClubMate  []barStockType
 }
 
-type barCache struct {
-	mu       sync.Mutex
-	snapshot barSnapshot
+type apiCacheEntry struct {
+	Key        string
+	Payload    []byte
+	FetchedAt  time.Time
+	ExpiresAt  time.Time
+	LastError  string
+	ErrorUntil time.Time
+}
+
+type apiCacheStore struct {
+	db     *sql.DB
+	logger *slog.Logger
+}
+
+type cacheStatus struct {
+	Name         string
+	StateLabel   string
+	FetchedLabel string
+	ExpiresLabel string
+	ErrorLabel   string
 }
 
 type scheduledItem struct {
@@ -197,6 +237,7 @@ type scheduledItem struct {
 type pageData struct {
 	OwnerName        string
 	NowLabel         string
+	TimezoneLabel    string
 	Mode             string
 	Signal           string
 	SourceLabel      string
@@ -207,6 +248,7 @@ type pageData struct {
 	Unscheduled      []favourite
 	FavouriteCount   int
 	Bar              barStatus
+	Cache            []cacheStatus
 	Weather          weather
 	Notes            []string
 	Warnings         []string
@@ -237,12 +279,24 @@ type server struct {
 	logger    *slog.Logger
 	client    *http.Client
 	templates *template.Template
-	barCache  barCache
+	apiCache  *apiCacheStore
+	retryMu   sync.Mutex
+	retrying  map[string]bool
 }
 
 func main() {
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+
 	cfg := loadConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	apiCache, err := openAPICache(context.Background(), logger, cfg.DatabaseURL)
+	if err != nil {
+		logger.Warn("api cache unavailable; continuing without persistent api cache", "error", err)
+	}
+	if apiCache != nil {
+		defer apiCache.close()
+	}
 
 	tmpl := template.Must(template.ParseFiles(
 		"web/templates/dashboard.html",
@@ -253,6 +307,8 @@ func main() {
 		logger:    logger,
 		client:    &http.Client{Timeout: cfg.HTTPTimeout},
 		templates: tmpl,
+		apiCache:  apiCache,
+		retrying:  make(map[string]bool),
 	}
 
 	mux := http.NewServeMux()
@@ -284,8 +340,9 @@ func loadConfig() config {
 		BarAPIBaseURL:     "https://emftill.assorted.org.uk",
 		BarEnabled:        true,
 		BarPollEvery:      10 * time.Minute,
+		APICacheTTL:       defaultAPICacheTTL,
 		EventTZ:           "Europe/London",
-		HTTPTimeout:       12 * time.Second,
+		HTTPTimeout:       defaultAPITimeout,
 	}
 
 	configFile := env("APP_CONFIG_FILE", "config/config.yaml")
@@ -318,6 +375,7 @@ func applyConfigFile(path string, cfg *config) error {
 	applyString(&cfg.PublicHostname, file.Domain.Name)
 	applyString(&cfg.PublicHostname, file.Domain.Hostname)
 	applyString(&cfg.DashboardHostname, file.Domain.DashboardHostname)
+	applyString(&cfg.DatabaseURL, file.Database.URL)
 	applyString(&cfg.FavouritesURL, file.ExternalAPIs.EMF.FavouritesURL)
 	applyString(&cfg.BarAPIBaseURL, file.ExternalAPIs.Bar.BaseURL)
 	cfg.BarEnabled = file.ExternalAPIs.Bar.Enabled
@@ -349,6 +407,12 @@ func applyConfigFile(path string, cfg *config) error {
 		}
 		cfg.HTTPTimeout = timeout
 	}
+	if cfg.HTTPTimeout <= 0 || cfg.HTTPTimeout > defaultAPITimeout {
+		cfg.HTTPTimeout = defaultAPITimeout
+	}
+	if cfg.BarPollEvery <= 0 || cfg.BarPollEvery > defaultAPICacheTTL {
+		cfg.BarPollEvery = defaultAPICacheTTL
+	}
 
 	return nil
 }
@@ -364,6 +428,186 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func openAPICache(parent context.Context, logger *slog.Logger, databaseURL string) (*apiCacheStore, error) {
+	if strings.TrimSpace(databaseURL) == "" {
+		return nil, errors.New("database.url is empty")
+	}
+
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(parent, apiCacheDatabaseTimeout)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	cache := &apiCacheStore{db: db, logger: logger}
+	if err := cache.ensureSchema(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return cache, nil
+}
+
+func (c *apiCacheStore) close() {
+	if c != nil && c.db != nil {
+		_ = c.db.Close()
+	}
+}
+
+func (c *apiCacheStore) ensureSchema(ctx context.Context) error {
+	_, err := c.db.ExecContext(ctx, `
+		create table if not exists api_cache (
+			key text primary key,
+			payload jsonb,
+			fetched_at timestamptz not null,
+			expires_at timestamptz not null,
+			last_error text not null default '',
+			error_until timestamptz
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	_, err = c.db.ExecContext(ctx, `alter table api_cache alter column payload drop not null`)
+	return err
+}
+
+func (c *apiCacheStore) get(parent context.Context, key string) (apiCacheEntry, bool, error) {
+	if c == nil {
+		return apiCacheEntry{}, false, nil
+	}
+
+	ctx, cancel := context.WithTimeout(parent, apiCacheDatabaseTimeout)
+	defer cancel()
+
+	var entry apiCacheEntry
+	var errorUntil sql.NullTime
+	err := c.db.QueryRowContext(ctx, `
+		select key, payload, fetched_at, expires_at, last_error, error_until
+		from api_cache
+		where key = $1
+	`, key).Scan(&entry.Key, &entry.Payload, &entry.FetchedAt, &entry.ExpiresAt, &entry.LastError, &errorUntil)
+	if errors.Is(err, sql.ErrNoRows) {
+		return apiCacheEntry{}, false, nil
+	}
+	if err != nil {
+		return apiCacheEntry{}, false, err
+	}
+	if errorUntil.Valid {
+		entry.ErrorUntil = errorUntil.Time
+	}
+	return entry, true, nil
+}
+
+func (c *apiCacheStore) put(parent context.Context, key string, payload []byte, fetchedAt time.Time, ttl time.Duration) error {
+	if c == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(parent, apiCacheDatabaseTimeout)
+	defer cancel()
+
+	_, err := c.db.ExecContext(ctx, `
+		insert into api_cache (key, payload, fetched_at, expires_at, last_error, error_until)
+		values ($1, $2::jsonb, $3, $4, '', null)
+		on conflict (key) do update set
+			payload = excluded.payload,
+			fetched_at = excluded.fetched_at,
+			expires_at = excluded.expires_at,
+			last_error = '',
+			error_until = null
+	`, key, string(payload), fetchedAt.UTC(), fetchedAt.Add(ttl).UTC())
+	return err
+}
+
+func (c *apiCacheStore) recordFailure(parent context.Context, key string, err error, now time.Time) {
+	if c == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(parent, apiCacheDatabaseTimeout)
+	defer cancel()
+
+	message := err.Error()
+	if len(message) > 500 {
+		message = message[:500]
+	}
+	if _, dbErr := c.db.ExecContext(ctx, `
+		insert into api_cache (key, payload, fetched_at, expires_at, last_error, error_until)
+		values ($1, null, $3, $3, $2, $4)
+		on conflict (key) do update set
+			last_error = excluded.last_error,
+			error_until = excluded.error_until
+	`, key, message, now.UTC(), now.Add(backgroundRetryCooldown).UTC()); dbErr != nil {
+		c.logger.Warn("record api cache failure", "key", key, "error", dbErr)
+	}
+}
+
+func (c *apiCacheStore) statuses(parent context.Context, loc *time.Location, now time.Time) []cacheStatus {
+	statuses := []cacheStatus{
+		{Name: "EMF favourites", StateLabel: "missing", FetchedLabel: "Never", ExpiresLabel: "--"},
+		{Name: "Bar snapshot", StateLabel: "missing", FetchedLabel: "Never", ExpiresLabel: "--"},
+	}
+	if c == nil {
+		for i := range statuses {
+			statuses[i].StateLabel = "database off"
+		}
+		return statuses
+	}
+
+	ctx, cancel := context.WithTimeout(parent, apiCacheDatabaseTimeout)
+	defer cancel()
+
+	rows, err := c.db.QueryContext(ctx, `
+		select key, fetched_at, expires_at, last_error, error_until
+		from api_cache
+		where key in ($1, $2)
+	`, cacheKeyFavourites, cacheKeyBar)
+	if err != nil {
+		c.logger.Warn("load api cache statuses", "error", err)
+		return statuses
+	}
+	defer rows.Close()
+
+	byKey := map[string]*cacheStatus{
+		cacheKeyFavourites: &statuses[0],
+		cacheKeyBar:        &statuses[1],
+	}
+	for rows.Next() {
+		var key, lastError string
+		var fetchedAt, expiresAt time.Time
+		var errorUntil sql.NullTime
+		if err := rows.Scan(&key, &fetchedAt, &expiresAt, &lastError, &errorUntil); err != nil {
+			c.logger.Warn("scan api cache status", "error", err)
+			continue
+		}
+		status := byKey[key]
+		if status == nil {
+			continue
+		}
+		status.FetchedLabel = fetchedAt.In(loc).Format(apiCacheStatusTimeFormat)
+		status.ExpiresLabel = expiresAt.In(loc).Format(apiCacheStatusTimeFormat)
+		switch {
+		case errorUntil.Valid && now.Before(errorUntil.Time):
+			status.StateLabel = "backoff"
+		case now.Before(expiresAt):
+			status.StateLabel = "fresh"
+		default:
+			status.StateLabel = "stale"
+		}
+		if lastError != "" {
+			status.ErrorLabel = "Last error: " + lastError
+		}
+	}
+	return statuses
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -430,6 +674,56 @@ func (s *server) contactPage() contactPageData {
 	}
 }
 
+func (s *server) startBackgroundRetry(key string, ttl time.Duration, refresh func(context.Context) ([]byte, error)) {
+	if s.apiCache == nil {
+		return
+	}
+
+	s.retryMu.Lock()
+	if s.retrying[key] {
+		s.retryMu.Unlock()
+		return
+	}
+	s.retrying[key] = true
+	s.retryMu.Unlock()
+
+	go func() {
+		defer func() {
+			s.retryMu.Lock()
+			delete(s.retrying, key)
+			s.retryMu.Unlock()
+		}()
+
+		var lastErr error
+		for attempt := 1; attempt <= backgroundRetryAttempts; attempt++ {
+			if attempt > 1 {
+				time.Sleep(backgroundRetryWait)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), s.cfg.HTTPTimeout)
+			payload, err := refresh(ctx)
+			cancel()
+			if err == nil {
+				now := time.Now().UTC()
+				if err := s.apiCache.put(context.Background(), key, payload, now, ttl); err != nil {
+					s.logger.Warn("store background api cache refresh", "key", key, "error", err)
+				}
+				return
+			}
+			lastErr = err
+			s.logger.Warn("background api refresh failed", "key", key, "attempt", attempt, "error", err)
+		}
+		if lastErr != nil {
+			s.apiCache.recordFailure(context.Background(), key, lastErr, time.Now().UTC())
+		}
+	}()
+}
+
+func (s *server) retryingKey(key string) bool {
+	s.retryMu.Lock()
+	defer s.retryMu.Unlock()
+	return s.retrying[key]
+}
+
 func (s *server) page(ctx context.Context) pageData {
 	loc, err := time.LoadLocation(s.cfg.EventTZ)
 	if err != nil {
@@ -444,6 +738,7 @@ func (s *server) page(ctx context.Context) pageData {
 	data := pageData{
 		OwnerName:        s.cfg.OwnerName,
 		NowLabel:         now.Format("15:04 MST"),
+		TimezoneLabel:    loc.String() + " // " + now.Format("MST"),
 		Mode:             modeLabel(now),
 		Signal:           signalLabel(s.cfg.FavouritesURL, warnings),
 		SourceLabel:      source,
@@ -452,6 +747,7 @@ func (s *server) page(ctx context.Context) pageData {
 		Unscheduled:      firstNUnscheduled(unscheduled, 5),
 		FavouriteCount:   len(faves),
 		Bar:              bar,
+		Cache:            s.cacheStatuses(ctx, loc, now),
 		Weather: weather{
 			Now:   "Check",
 			Rain:  "Soon",
@@ -475,37 +771,99 @@ func (s *server) page(ctx context.Context) pageData {
 	return data
 }
 
+func (s *server) cacheStatuses(ctx context.Context, loc *time.Location, now time.Time) []cacheStatus {
+	return s.apiCache.statuses(ctx, loc, now)
+}
+
 func (s *server) loadFavourites(ctx context.Context) ([]favourite, string, []string) {
 	if strings.TrimSpace(s.cfg.FavouritesURL) == "" {
 		return sampleFavourites(), "sample data", []string{"Set external_apis.emf.favourites_url in config/config.yaml to render your real favourites."}
 	}
 
+	now := time.Now().UTC()
+	entry, ok, err := s.apiCache.get(ctx, cacheKeyFavourites)
+	if err != nil {
+		s.logger.Warn("load favourites cache", "error", err)
+	}
+	if ok && now.Before(entry.ExpiresAt) {
+		faves, err := decodeFavourites(entry.Payload)
+		if err == nil {
+			return faves, "cached favourites", nil
+		}
+		s.logger.Warn("decode cached favourites", "error", err)
+	}
+	if ok && (s.retryingKey(cacheKeyFavourites) || (!entry.ErrorUntil.IsZero() && now.Before(entry.ErrorUntil))) {
+		faves, err := decodeFavourites(entry.Payload)
+		if err == nil {
+			return faves, "stale favourites", []string{"Using cached favourites while API refresh is paused after recent errors."}
+		}
+		return sampleFavourites(), "sample data", []string{"Favourites API refresh is paused after recent errors; showing sample data."}
+	}
+	if s.retryingKey(cacheKeyFavourites) {
+		return sampleFavourites(), "sample data", []string{"Favourites API refresh is already retrying; showing sample data."}
+	}
+
+	faves, payload, err := s.fetchFavourites(ctx)
+	if err == nil {
+		if err := s.apiCache.put(ctx, cacheKeyFavourites, payload, now, s.cfg.APICacheTTL); err != nil {
+			s.logger.Warn("store favourites cache", "error", err)
+		}
+		return faves, "live favourites", nil
+	}
+
+	s.logger.Warn("refresh favourites", "error", err)
+	if ok {
+		s.startBackgroundRetry(cacheKeyFavourites, s.cfg.APICacheTTL, func(retryCtx context.Context) ([]byte, error) {
+			_, payload, err := s.fetchFavourites(retryCtx)
+			return payload, err
+		})
+		faves, decodeErr := decodeFavourites(entry.Payload)
+		if decodeErr == nil {
+			return faves, "stale favourites", []string{"Could not refresh favourites; using cached data."}
+		}
+	}
+	s.startBackgroundRetry(cacheKeyFavourites, s.cfg.APICacheTTL, func(retryCtx context.Context) ([]byte, error) {
+		_, payload, err := s.fetchFavourites(retryCtx)
+		return payload, err
+	})
+	return sampleFavourites(), "sample data", []string{"Could not fetch favourites; showing sample data."}
+}
+
+func (s *server) fetchFavourites(parent context.Context) ([]favourite, []byte, error) {
+	ctx, cancel := context.WithTimeout(parent, s.cfg.HTTPTimeout)
+	defer cancel()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.cfg.FavouritesURL, nil)
 	if err != nil {
-		return sampleFavourites(), "sample data", []string{"Favourites URL is invalid; showing sample data."}
+		return nil, nil, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "emf-dashboard/0.1")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		s.logger.Warn("fetch favourites", "error", err)
-		return sampleFavourites(), "sample data", []string{"Could not fetch favourites; showing sample data."}
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		s.logger.Warn("fetch favourites status", "status", resp.StatusCode)
-		return sampleFavourites(), "sample data", []string{"Favourites endpoint returned an error; showing sample data."}
+		return nil, nil, errors.New(resp.Status)
 	}
 
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, err
+	}
+	faves, err := decodeFavourites(payload)
+	return faves, payload, err
+}
+
+func decodeFavourites(payload []byte) ([]favourite, error) {
 	var faves []favourite
-	if err := json.NewDecoder(resp.Body).Decode(&faves); err != nil {
-		s.logger.Warn("decode favourites", "error", err)
-		return sampleFavourites(), "sample data", []string{"Could not decode favourites JSON; showing sample data."}
+	if err := json.Unmarshal(payload, &faves); err != nil {
+		return nil, err
 	}
-
-	return faves, "live favourites", nil
+	return faves, nil
 }
 
 func (s *server) loadBarStatus(ctx context.Context, loc *time.Location, now time.Time) barStatus {
@@ -556,33 +914,66 @@ func (s *server) loadBarStatus(ctx context.Context, loc *time.Location, now time
 }
 
 func (s *server) cachedBarSnapshot(ctx context.Context, now time.Time) (barSnapshot, []string) {
-	s.barCache.mu.Lock()
-	defer s.barCache.mu.Unlock()
-
-	if !s.barCache.snapshot.FetchedAt.IsZero() && now.Sub(s.barCache.snapshot.FetchedAt) < s.cfg.BarPollEvery {
-		return s.barCache.snapshot, nil
+	now = now.UTC()
+	entry, ok, err := s.apiCache.get(ctx, cacheKeyBar)
+	if err != nil {
+		s.logger.Warn("load bar cache", "error", err)
 	}
-
-	snapshot, warnings := s.fetchBarSnapshot(ctx, now)
-	if snapshot.FetchedAt.IsZero() {
-		if !s.barCache.snapshot.FetchedAt.IsZero() {
-			warnings = append(warnings, "Using stale bar data.")
-			return s.barCache.snapshot, warnings
+	if ok && now.Before(entry.ExpiresAt) {
+		snapshot, err := decodeBarSnapshot(entry.Payload)
+		if err == nil {
+			return snapshot, nil
 		}
-		return barSnapshot{FetchedAt: now}, warnings
+		s.logger.Warn("decode cached bar snapshot", "error", err)
+	}
+	if ok && (s.retryingKey(cacheKeyBar) || (!entry.ErrorUntil.IsZero() && now.Before(entry.ErrorUntil))) {
+		snapshot, err := decodeBarSnapshot(entry.Payload)
+		if err == nil {
+			return snapshot, []string{"Using cached bar data while API refresh is paused after recent errors."}
+		}
+		return barSnapshot{FetchedAt: now}, []string{"Bar API refresh is paused after recent errors."}
+	}
+	if s.retryingKey(cacheKeyBar) {
+		return barSnapshot{FetchedAt: now}, []string{"Bar API refresh is already retrying."}
 	}
 
-	s.barCache.snapshot = snapshot
+	snapshot, payload, warnings, err := s.fetchBarSnapshot(ctx, now)
+	if err == nil {
+		if err := s.apiCache.put(ctx, cacheKeyBar, payload, now, s.cfg.BarPollEvery); err != nil {
+			s.logger.Warn("store bar cache", "error", err)
+		}
+		return snapshot, warnings
+	}
+
+	s.logger.Warn("refresh bar snapshot", "error", err)
+	s.startBackgroundRetry(cacheKeyBar, s.cfg.BarPollEvery, func(retryCtx context.Context) ([]byte, error) {
+		_, payload, _, err := s.fetchBarSnapshot(retryCtx, time.Now().UTC())
+		return payload, err
+	})
+	if ok {
+		cached, decodeErr := decodeBarSnapshot(entry.Payload)
+		if decodeErr == nil {
+			return cached, append(warnings, "Could not refresh bar data; using cached data.")
+		}
+	}
+	if snapshot.FetchedAt.IsZero() {
+		snapshot.FetchedAt = now
+	}
 	return snapshot, warnings
 }
 
-func (s *server) fetchBarSnapshot(ctx context.Context, now time.Time) (barSnapshot, []string) {
+func (s *server) fetchBarSnapshot(parent context.Context, now time.Time) (barSnapshot, []byte, []string, error) {
+	ctx, cancel := context.WithTimeout(parent, s.cfg.HTTPTimeout)
+	defer cancel()
+
 	snapshot := barSnapshot{FetchedAt: now}
 	var warnings []string
+	var errs []string
 
 	sessions, err := fetchJSON[barSessionsResponse](ctx, s.client, s.cfg.BarAPIBaseURL, "/api/sessions.json")
 	if err != nil {
 		warnings = append(warnings, "Bar sessions unavailable.")
+		errs = append(errs, "sessions: "+err.Error())
 		s.logger.Warn("fetch bar sessions", "error", err)
 	} else {
 		snapshot.Sessions = sessions.Sessions
@@ -591,6 +982,7 @@ func (s *server) fetchBarSnapshot(ctx context.Context, now time.Time) (barSnapsh
 	progress, err := fetchJSON[barProgressResponse](ctx, s.client, s.cfg.BarAPIBaseURL, "/api/progress.json")
 	if err != nil {
 		warnings = append(warnings, "Bar progress unavailable.")
+		errs = append(errs, "progress: "+err.Error())
 		s.logger.Warn("fetch bar progress", "error", err)
 	} else {
 		snapshot.Progress = progress
@@ -599,6 +991,7 @@ func (s *server) fetchBarSnapshot(ctx context.Context, now time.Time) (barSnapsh
 	onTap, err := fetchJSON[barOnTapResponse](ctx, s.client, s.cfg.BarAPIBaseURL, "/api/on-tap.json")
 	if err != nil {
 		warnings = append(warnings, "Main bar on-tap list unavailable.")
+		errs = append(errs, "on tap: "+err.Error())
 		s.logger.Warn("fetch on tap", "error", err)
 	} else {
 		snapshot.MainTap = onTap
@@ -607,6 +1000,7 @@ func (s *server) fetchBarSnapshot(ctx context.Context, now time.Time) (barSnapsh
 	cybarTap, err := fetchJSON[barOnTapResponse](ctx, s.client, s.cfg.BarAPIBaseURL, "/api/cybar-on-tap.json")
 	if err != nil {
 		warnings = append(warnings, "Null Sector on-tap list unavailable.")
+		errs = append(errs, "cybar on tap: "+err.Error())
 		s.logger.Warn("fetch cybar on tap", "error", err)
 	} else {
 		snapshot.CybarTap = cybarTap
@@ -615,12 +1009,28 @@ func (s *server) fetchBarSnapshot(ctx context.Context, now time.Time) (barSnapsh
 	clubMate, err := fetchJSON[barDepartmentResponse](ctx, s.client, s.cfg.BarAPIBaseURL, "/api/department/75.json")
 	if err != nil {
 		warnings = append(warnings, "Club Mate stock unavailable.")
+		errs = append(errs, "club mate: "+err.Error())
 		s.logger.Warn("fetch club mate", "error", err)
 	} else {
 		snapshot.ClubMate = clubMate.StockTypes
 	}
 
-	return snapshot, warnings
+	payload, marshalErr := json.Marshal(snapshot)
+	if marshalErr != nil {
+		return snapshot, nil, warnings, marshalErr
+	}
+	if len(errs) > 0 {
+		return snapshot, payload, warnings, errors.New(strings.Join(errs, "; "))
+	}
+	return snapshot, payload, warnings, nil
+}
+
+func decodeBarSnapshot(payload []byte) (barSnapshot, error) {
+	var snapshot barSnapshot
+	if err := json.Unmarshal(payload, &snapshot); err != nil {
+		return barSnapshot{}, err
+	}
+	return snapshot, nil
 }
 
 func fetchJSON[T any](ctx context.Context, client *http.Client, baseURL string, path string) (T, error) {
@@ -809,8 +1219,8 @@ func buildSchedule(faves []favourite, loc *time.Location, now time.Time) ([]sche
 				Venue:       occ.Venue,
 				Start:       start,
 				End:         end,
-				StartLabel:  start.Format("15:04"),
-				EndLabel:    end.Format("15:04"),
+				StartLabel:  start.Format("15:04 MST"),
+				EndLabel:    end.Format("15:04 MST"),
 				DayLabel:    start.Format("Mon 2 Jan"),
 				Countdown:   countdown(now, start),
 			}
@@ -857,18 +1267,16 @@ func countdown(now, start time.Time) string {
 	if d < 0 {
 		return "now"
 	}
-	if d < time.Hour {
-		return "T-" + d.Round(time.Minute).String()
+	d = d.Round(time.Minute)
+	if d < time.Minute {
+		return "T-0h 1m"
 	}
-	if d < 48*time.Hour {
-		hours := int(d.Hours())
-		mins := int(d.Minutes()) % 60
-		if mins == 0 {
-			return "T-" + (time.Duration(hours) * time.Hour).String()
-		}
-		return "T-" + (time.Duration(hours) * time.Hour).String() + " " + (time.Duration(mins) * time.Minute).String()
+	hours := int(d.Hours())
+	mins := int(d.Minutes()) % 60
+	if mins == 0 {
+		return "T-" + plural(hours, "hour")
 	}
-	return start.Format("Mon 2 Jan")
+	return "T-" + plural(hours, "hour") + " " + plural(mins, "min")
 }
 
 func modeLabel(now time.Time) string {
