@@ -16,7 +16,7 @@ It was, with very little shame, vibe coded with Codex in a burst of "what if my 
 - Home Assistant phone vitals, including configurable metrics and daily-delta values.
 - Telegram-backed MiniBlog for short text updates.
 - PostgreSQL-backed API caching and bot state.
-- Tiny client-side refresh script for periodic dashboard reloads.
+- Tiny client-side refresh script for 5-minute dashboard reloads.
 
 ## Build And Run
 
@@ -75,22 +75,23 @@ database:
 external_apis:
   emf:
     favourites_url: "https://www.emfcamp.org/favourites.json?token=..."
+    cache_interval: "30m"
   bar:
     enabled: true
     base_url: "https://emftill.assorted.org.uk"
-    poll_interval: "15m"
+    poll_interval: "30m"
   weather:
     enabled: true
     base_url: "https://api.open-meteo.com"
     location: "Eastnor Deer Park"
     latitude: 52.0367
     longitude: -2.3918
-    cache_interval: "15m"
+    cache_interval: "30m"
   home_assistant:
     enabled: true
     base_url: "https://home-assistant.example.com"
     access_token: "..."
-    cache_interval: "10m"
+    cache_interval: "30m"
 
 telegram:
   enabled: true
@@ -106,6 +107,8 @@ For the bar API:
 
 - Before EMF 2026, use `https://emftill.assorted.org.uk`.
 - When live event data is ready, switch to `https://bar.emf.camp`.
+
+Dashboard API data is cached in PostgreSQL. Favourites, bar data, weather, and Home Assistant vitals are refreshed during page renders only when their cached value is stale. Failed refreshes return stale or degraded data quickly, then make a short background retry attempt before backing off.
 
 ## Telegram MiniBlog
 

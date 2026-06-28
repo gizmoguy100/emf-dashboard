@@ -11,7 +11,7 @@
   "icons": [
     {
       "src": "/static/favicons/dashboard.png",
-      "sizes": "1024x1024",
+      "sizes": "256x256",
       "type": "image/png",
       "purpose": "any maskable"
     }

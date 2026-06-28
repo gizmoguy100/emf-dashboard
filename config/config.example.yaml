@@ -32,25 +32,26 @@ external_apis:
     token: ""
     # Full favourites JSON URL, including token. Do not commit a real value.
     favourites_url: ""
+    cache_interval: "30m"
     request_timeout: "5s"
   bar:
     enabled: true
     # Test service before the event; switch to https://bar.emf.camp when live.
     base_url: "https://emftill.assorted.org.uk"
-    poll_interval: "15m"
+    poll_interval: "30m"
   weather:
     enabled: false
     base_url: "https://api.open-meteo.com"
     location: "Eastnor Deer Park"
     latitude: 52.0367
     longitude: -2.3918
-    cache_interval: "15m"
+    cache_interval: "30m"
   home_assistant:
     enabled: false
     base_url: "https://home-assistant.example.com"
     # Create a long-lived access token from your Home Assistant profile.
     access_token: ""
-    cache_interval: "10m"
+    cache_interval: "30m"
     metrics:
       - label: "Steps Today"
         entity_id: "sensor.pixel_8_pro_steps_sensor"

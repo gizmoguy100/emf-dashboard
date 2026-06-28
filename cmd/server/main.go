@@ -31,9 +31,9 @@ const (
 	cacheKeyHAStates   = "home_assistant_states"
 	cacheKeyWeather    = "weather_current"
 
-	defaultAPICacheTTL       = 15 * time.Minute
-	defaultHACacheTTL        = 10 * time.Minute
-	defaultWeatherCacheTTL   = 15 * time.Minute
+	defaultAPICacheTTL       = 30 * time.Minute
+	defaultHACacheTTL        = 30 * time.Minute
+	defaultWeatherCacheTTL   = 30 * time.Minute
 	defaultAPITimeout        = 5 * time.Second
 	backgroundRetryCooldown  = 10 * time.Minute
 	backgroundRetryAttempts  = 3
@@ -107,6 +107,7 @@ type fileConfig struct {
 			BaseURL        string `yaml:"base_url"`
 			Token          string `yaml:"token"`
 			FavouritesURL  string `yaml:"favourites_url"`
+			CacheInterval  string `yaml:"cache_interval"`
 			RequestTimeout string `yaml:"request_timeout"`
 		} `yaml:"emf"`
 		Bar struct {
@@ -563,7 +564,7 @@ func loadConfig() config {
 		DashboardHostname: "localhost",
 		BarAPIBaseURL:     "https://emftill.assorted.org.uk",
 		BarEnabled:        true,
-		BarPollEvery:      10 * time.Minute,
+		BarPollEvery:      defaultAPICacheTTL,
 		HACacheEvery:      defaultHACacheTTL,
 		WeatherBaseURL:    "https://api.open-meteo.com",
 		WeatherLocation:   "Eastnor Deer Park",
@@ -687,6 +688,13 @@ func applyConfigFile(path string, cfg *config) error {
 		applyString(&cfg.EventTZ, file.Owner.Timezone)
 	}
 
+	if file.ExternalAPIs.EMF.CacheInterval != "" {
+		interval, err := time.ParseDuration(file.ExternalAPIs.EMF.CacheInterval)
+		if err != nil {
+			return err
+		}
+		cfg.APICacheTTL = interval
+	}
 	if file.ExternalAPIs.EMF.RequestTimeout != "" {
 		timeout, err := time.ParseDuration(file.ExternalAPIs.EMF.RequestTimeout)
 		if err != nil {
@@ -703,6 +711,9 @@ func applyConfigFile(path string, cfg *config) error {
 	}
 	if cfg.HTTPTimeout <= 0 || cfg.HTTPTimeout > defaultAPITimeout {
 		cfg.HTTPTimeout = defaultAPITimeout
+	}
+	if cfg.APICacheTTL <= 0 || cfg.APICacheTTL > 24*time.Hour {
+		cfg.APICacheTTL = defaultAPICacheTTL
 	}
 	if cfg.BarPollEvery <= 0 || cfg.BarPollEvery > defaultAPICacheTTL {
 		cfg.BarPollEvery = defaultAPICacheTTL

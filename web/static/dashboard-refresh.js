@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  var refreshAfterMs = 60000;
+  var refreshAfterMs = 300000;
   var timer = null;
 
   function scheduleRefresh() {

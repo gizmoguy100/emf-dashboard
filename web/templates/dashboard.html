@@ -92,7 +92,7 @@
         </div>
         <div class="panel-body schedule">
           {{range .Schedule}}
-            <a class="talk {{if .IsNext}}next{{end}}" href="{{.Link}}">
+            <a class="talk {{if .IsNext}}next{{end}}" href="{{.Link}}" target="_blank">
               <div class="timecode">{{.StartLabel}}</div>
               <div>
                 <h3>{{.Title}}</h3>
@@ -130,35 +130,7 @@
         </div>
       </article>
 
-      <article class="panel span-3 lg-4">
-        <div class="panel-header">
-          <h2 class="panel-title">Camp Ops</h2>
-          <span class="tag">Checklist</span>
-        </div>
-        <div class="panel-body todo-list">
-          <div class="todo">
-            <span class="checkbox done" aria-hidden="true"></span>
-            <div>
-              <h3>Water bottle filled</h3>
-              <div class="meta">Last confirmed when you remembered this page exists</div>
-            </div>
-          </div>
-          <div class="todo">
-            <span class="checkbox" aria-hidden="true"></span>
-            <div>
-              <h3>Charge battery pack</h3>
-              <div class="meta">Socket window before evening talks</div>
-            </div>
-          </div>
-          <div class="todo">
-            <span class="checkbox" aria-hidden="true"></span>
-            <div>
-              <h3>Find badge cable</h3>
-              <div class="meta">Probably in the small black pouch</div>
-            </div>
-          </div>
-        </div>
-      </article>
+
 
       <article class="panel span-3 lg-4">
         <div class="panel-header">
@@ -292,15 +264,7 @@
         </div>
       </article>
 
-      <article class="panel span-6 lg-4">
-        <div class="panel-header">
-          <h2 class="panel-title">Notes Buffer</h2>
-          <span class="tag">Local</span>
-        </div>
-        <div class="panel-body notes">
-          {{range .Notes}}<p>{{.}}</p>{{end}}
-        </div>
-      </article>
+
     </section>
   </main>
 </body>
